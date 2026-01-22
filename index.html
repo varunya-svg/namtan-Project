@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>School RFID Attendance V2</title>
+
+    <style>
+
+        body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; background-color: #f4f4f9; }
+
+        .container { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
+
+        h1, h2 { color: #333; text-align: center; }
+
+        
+
+        /* Input Styling */
+
+        input[type="text"] { width: 100%; padding: 12px; margin: 8px 0; border: 2px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+
+        input[type="text"]:focus { border-color: #4CAF50; outline: none; }
+
+        button { width: 100%; padding: 12px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+
+        button:hover { background-color: #45a049; }
+
+        
+
+        /* Status Messages */
+
+        #status { margin-top: 1rem; padding: 10px; border-radius: 4px; text-align: center; display: none; }
+
+        .success { background-color: #d4edda; color: #155724; }
+
+        .error { background-color: #f8d7da; color: #721c24; }
+
+
+
+        /* Tables */
+
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #ddd; }
+
+        th { background-color: #4CAF50; color: white; }
+
+
+
+        /* Admin Section Style */
+
+        .admin-box { border: 2px dashed #ccc; background-color: #fafafa; }
+
+        .admin-title { color: #666; font-size: 0.9em; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+
+    </style>
+
+</head>
+
+<body>
+
+
+
+<div class="container">
+
+    <h1>🏫 Daily Attendance Check-in</h1>
+
+    
+
+    <p><strong>Step 1:</strong> Click the box below and scan card.</p>
+
+    <input type="text" id="attendanceInput" placeholder="Scan RFID tag here for attendance..." autofocus autocomplete="off">
+
+    
+
+    <div id="status"></div>
+
+
+
+    <h3>Today's Log</h3>
+
+    <table id="attendanceTable">
+
+        <thead>
+
+            <tr>
+
+                <th>Time</th>
+
+                <th>Name</th>
+
+                <th>Student ID (Tag)</th>
+
+            </tr>
+
+        </thead>
+
+        <tbody>
+
+            </tbody>
+
+    </table>
+
+</div>
+
+
+
+<div class="container admin-box">
+
+    <div class="admin-title">Teacher Control Panel</div>
+
+    <h2>➕ Register New Student</h2>
+
+    <p>Use this to link a card to a student name.</p>
+
+    
+
+    <input type="text" id="regName" placeholder="Enter Student Name (e.g. Somchai)">
+
+    <input type="text" id="regTag" placeholder="Click here & Scan Card to Register...">
+
+    <button onclick="registerStudent()">Save Student</button>
+
+</div>
+
+
+
+<script type="module">
+
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+
+  import { getFirestore, collection, addDoc, setDoc, doc, onSnapshot, query, orderBy, limit, serverTimestamp } 
+
+    from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+
+
+  // --- PASTE YOUR FIREBASE CONFIG HERE ---
+
+   const firebaseConfig = {
+
+    apiKey: "AIzaSyD-YOUR-KEY-HERE",
+
+    authDomain: "your-project.firebaseapp.com",
+
+    projectId: "your-project-id",
+
+    storageBucket: "your-project.appspot.com",
+
+    messagingSenderId: "123456",
+
+    appId: "1:123456:web:abc"
+
+  };
+
+  // ----------------------------------------
+
+
+
+  const app = initializeApp(firebaseConfig);
+
+  const db = getFirestore(app);
+
+
+
+  // --- 1. STUDENT DIRECTORY (The "Phonebook") ---
+
+  let studentDirectory = {}; 
+
+
+
+  // Listen for changes in the 'students' collection so we know who is who
+
+  onSnapshot(collection(db, "students"), (snapshot) => {
+
+      snapshot.forEach((doc) => {
+
+          // Create a map: ID -> Name
+
+          studentDirectory[doc.id] = doc.data().name;
+
+      });
+
+      console.log("Student directory updated!", studentDirectory);
+
+  });
+
+
+
+  // --- 2. REGISTRATION LOGIC ---
+
+  window.registerStudent = async function() {
+
+      const name = document.getElementById('regName').value.trim();
+
+      const tagId = document.getElementById('regTag').value.trim();
+
+
+
+      if (!name || !tagId) {
+
+          alert("Please enter both Name and scan a Tag!");
+
+          return;
+
+      }
+
+
+
+      try {
+
+          // We use 'setDoc' with the tagId as the key. 
+
+          // This prevents duplicate students.
+
+          await setDoc(doc(db, "students", tagId), {
+
+              name: name,
+
+              registeredAt: serverTimestamp()
+
+          });
+
+          
+
+          alert(`✅ Success! ${name} is now linked to tag ${tagId}`);
+
+          document.getElementById('regName').value = '';
+
+          document.getElementById('regTag').value = '';
+
+      } catch (e) {
+
+          console.error("Error: ", e);
+
+          alert("❌ Error registering student.");
+
+      }
+
+  }
+
+
+
+  // --- 3. ATTENDANCE LOGIC ---
+
+  const attendanceInput = document.getElementById('attendanceInput');
+
+  const statusDiv = document.getElementById('status');
+
+
+
+  attendanceInput.addEventListener('keypress', async (e) => {
+
+      if (e.key === 'Enter') {
+
+          const tagId = attendanceInput.value.trim();
+
+          if (tagId) {
+
+              await markAttendance(tagId);
+
+              attendanceInput.value = ''; 
+
+          }
+
+      }
+
+  });
+
+
+
+  async function markAttendance(id) {
+
+      // Look up the name in our local directory
+
+      const studentName = studentDirectory[id] || "Unknown Student";
+
+
+
+      try {
+
+          await addDoc(collection(db, "attendance"), {
+
+              tag_id: id,
+
+              student_name: studentName, // Save the name too!
+
+              timestamp: serverTimestamp()
+
+          });
+
+          
+
+          showStatus(`✅ Welcome, ${studentName}!`, "success");
+
+      } catch (e) {
+
+          console.error(e);
+
+          showStatus("❌ Error saving data.", "error");
+
+      }
+
+  }
+
+
+
+  function showStatus(msg, type) {
+
+      statusDiv.textContent = msg;
+
+      statusDiv.className = type;
+
+      statusDiv.style.display = 'block';
+
+      setTimeout(() => { statusDiv.style.display = 'none'; }, 3000);
+
+  }
+
+
+
+  // --- 4. SHOW TABLE ---
+
+  const q = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(10));
+
+  
+
+  onSnapshot(q, (snapshot) => {
+
+      const tbody = document.querySelector('#attendanceTable tbody');
+
+      tbody.innerHTML = ''; 
+
+      
+
+      snapshot.forEach((doc) => {
+
+          const data = doc.data();
+
+          let dateStr = "Just now";
+
+          if (data.timestamp) dateStr = data.timestamp.toDate().toLocaleTimeString();
+
+
+
+          // Use name from database, or fallback to "Unknown"
+
+          const nameDisplay = data.student_name || "Unknown Tag";
+
+
+
+          const row = `<tr>
+
+              <td>${dateStr}</td>
+
+              <td style="font-weight:bold">${nameDisplay}</td>
+
+              <td style="color:#666">${data.tag_id}</td>
+
+          </tr>`;
+
+          tbody.innerHTML += row;
+
+      });
+
+  });
+
+</script>
+
+
+
+</body>
+
+</html>
+
